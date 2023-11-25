@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -10,34 +10,18 @@ use axum::{
 use deadpool_redis::{Config, Runtime};
 use rand::{distributions::Alphanumeric, Rng};
 use redis::AsyncCommands;
+use serde::{Deserialize, Serialize};
 use sha2::{digest::FixedOutput, Digest};
 use tokio::select;
 
 #[tokio::main]
 async fn main() {
     let redis_url = std::env::var("REDIS_URL").expect("Expected REDIS_URL in env");
-    let zeros: usize = std::env::var("ZEROS")
-        .expect("Expected ZEROS in env")
-        .parse()
-        .expect("Invalid ZEROS");
-    let challenges: usize = std::env::var("CHALLENGES")
-        .expect("Expected CHALLENGES in env")
-        .parse()
-        .expect("Invalid CHALLENGES");
-    let timeout: usize = std::env::var("TIMEOUT")
-        .expect("Expected TIMEOUT in env")
-        .parse()
-        .expect("Invalid TIMEOUT");
 
     let redis_cfg = Config::from_url(redis_url);
     let redis = redis_cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
     redis.get().await.expect("Failed to connect to redis");
-    let state = Arc::new(InnerAppState {
-        redis,
-        zeros,
-        challenges,
-        timeout,
-    });
+    let state = Arc::new(InnerAppState { redis });
     let app = router(state);
     axum::Server::bind(&([0, 0, 0, 0], 8080).into())
         .serve(app.into_make_service())
@@ -49,7 +33,7 @@ async fn main() {
 fn router(state: AppState) -> Router {
     let v0 = Router::new()
         .route("/challenge", get(challenge))
-        .route("/verify", post(verify))
+        .route("/verify/:id", post(verify))
         .route("/client.js", get(js))
         .with_state(state.clone());
     let api = Router::new()
@@ -62,9 +46,6 @@ pub type AppState = Arc<InnerAppState>;
 
 pub struct InnerAppState {
     redis: deadpool_redis::Pool,
-    zeros: usize,
-    challenges: usize,
-    timeout: usize,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -73,80 +54,170 @@ pub enum Error {
     Redis(#[from] redis::RedisError),
     #[error("Redis pool error: {0}")]
     DeadpoolRedis(#[from] deadpool_redis::PoolError),
+    #[error("serde_json error: {0}")]
+    SerdeJson(#[from] serde_json::Error),
+    #[error("Configuration out of bounds")]
+    ParamsOutOfBounds,
+    #[error("Token not found")]
+    TokenNotFound,
+    #[error("Wrong number of challenge responses sent for token!")]
+    WrongNumberOfChallenges,
 }
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response()
+        let status = self.status();
+        (status, self.to_string()).into_response()
     }
 }
 
-#[derive(serde::Serialize)]
-pub struct Challenge {
+impl Error {
+    fn status(&self) -> StatusCode {
+        match self {
+            Error::Redis(_) | Error::DeadpoolRedis(_) | Error::SerdeJson(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            Error::ParamsOutOfBounds | Error::WrongNumberOfChallenges => StatusCode::BAD_REQUEST,
+            Error::TokenNotFound => StatusCode::NOT_FOUND,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct ChallengeSet {
+    params: ChallengeParams,
     token: String,
+    challenges: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RedisChallengeSet {
+    params: ChallengeParams,
+    challenges: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ChallengeVerification {
+    params: ChallengeParams,
+    valid: bool,
+}
+
+#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+pub struct ChallengeParams {
+    #[serde(default = "default_zeros")]
     zeros: usize,
+    #[serde(default = "default_challenges")]
+    challenges: usize,
+    #[serde(default = "default_timeout")]
+    timeout: usize,
 }
 
-#[derive(serde::Deserialize)]
-pub struct CompletedChallenge {
-    token: String,
-    nonce: usize,
+fn default_zeros() -> usize {
+    14
 }
 
-async fn challenge(State(state): State<AppState>) -> Result<Json<Vec<Challenge>>, Error> {
+fn default_challenges() -> usize {
+    8
+}
+
+fn default_timeout() -> usize {
+    10
+}
+
+fn get_token() -> String {
+    rand::thread_rng()
+        .sample_iter(Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect()
+}
+
+async fn challenge(
+    State(state): State<AppState>,
+    Query(params): Query<ChallengeParams>,
+) -> Result<Json<ChallengeSet>, Error> {
     let mut challenges = Vec::with_capacity(8);
-    for _ in 0..state.challenges {
-        let token: String = rand::thread_rng()
-            .sample_iter(Alphanumeric)
-            .take(32)
-            .map(char::from)
-            .collect();
-        state
-            .redis
-            .get()
-            .await?
-            .set_ex(&token, "", state.timeout)
-            .await?;
-        challenges.push(Challenge {
-            token,
-            zeros: state.zeros,
-        })
+    if params.zeros > 32 || params.challenges > 128 || params.timeout > 3600 {
+        return Err(Error::ParamsOutOfBounds);
     }
-    Ok(Json(challenges))
+
+    let token = get_token();
+
+    for _ in 0..params.challenges {
+        let challenge = get_token();
+        challenges.push(challenge)
+    }
+
+    let redis_challenge = RedisChallengeSet {
+        params,
+        challenges: challenges.clone(),
+    };
+    state
+        .redis
+        .get()
+        .await?
+        .set_ex(
+            &token,
+            serde_json::to_string(&redis_challenge)?,
+            params.timeout,
+        )
+        .await?;
+
+    Ok(Json(ChallengeSet {
+        token,
+        params,
+        challenges,
+    }))
 }
 
 async fn verify(
     State(state): State<AppState>,
-    Json(form): Json<Vec<CompletedChallenge>>,
-) -> Result<Json<Vec<bool>>, Error> {
-    let mut responses = Vec::with_capacity(form.len());
-    'challenges: for CompletedChallenge { token, nonce } in form {
-        let redis_token: Option<String> = state.redis.get().await?.get_del(&token).await?;
-        if redis_token.is_none() {
-            responses.push(false);
-            continue 'challenges;
+    Path(token): Path<String>,
+    Json(form): Json<Vec<usize>>,
+) -> Result<Json<ChallengeVerification>, Error> {
+    let maybe_token_meta: Option<String> = state.redis.get().await?.get_del(&token).await?;
+    let Some(token_meta_string) = maybe_token_meta else {
+        return Err(Error::TokenNotFound);
+    };
+    let challenge_set: RedisChallengeSet = serde_json::from_str(&token_meta_string)?;
+    if form.len() != challenge_set.params.challenges {
+        return Err(Error::WrongNumberOfChallenges);
+    }
+    for (nonce, challenge) in form.into_iter().zip(challenge_set.challenges) {
+        if !check_token(nonce, &token, &challenge, challenge_set.params.zeros) {
+            return Ok(Json(ChallengeVerification {
+                params: challenge_set.params,
+                valid: false,
+            }));
         }
-        let bytes = format!("{nonce}{token}");
-        let mut sha = sha2::Sha512::default();
-        sha.update(bytes);
-        let mut bits = 0;
-        let data: Vec<u8> = sha.finalize_fixed().into_iter().collect();
-        for item in data {
-            for shift in 0..8 {
-                let and_target = 0b10000000u8 >> shift;
-                if (item & and_target) != 0 {
-                    responses.push(false);
-                    continue 'challenges;
-                }
-                bits += 1;
-                if bits >= state.zeros {
-                    responses.push(true);
-                    continue 'challenges;
-                }
+        tokio::task::yield_now().await;
+    }
+    Ok(Json(ChallengeVerification {
+        params: challenge_set.params,
+        valid: true,
+    }))
+}
+
+fn check_token(nonce: usize, token: &str, challenge: &str, zeros: usize) -> bool {
+    let mut sha = sha2::Sha512::default();
+    sha.update(nonce.to_string());
+    sha.update(token);
+    sha.update(challenge);
+    let mut bits = 0;
+    let data: Vec<u8> = sha.finalize_fixed().into_iter().collect();
+    for item in data {
+        for shift in 0..8 {
+            let and_target = 0b10000000u8 >> shift;
+            if (item & and_target) != 0 {
+                return false;
+            }
+            bits += 1;
+            if bits >= zeros {
+                return true;
             }
         }
     }
-    Ok(Json(responses))
+    false
 }
 
 async fn js() -> ([(&'static str, &'static str); 2], &'static [u8]) {
