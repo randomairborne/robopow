@@ -41,3 +41,12 @@ jobs:
           push: true
           tags: ghcr.io/${{ env.REPO }}:latest
           platforms: linux/amd64
+
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - run: flyctl deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+

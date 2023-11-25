@@ -21,8 +21,11 @@ async fn main() {
     let redis_cfg = Config::from_url(redis_url);
     let redis = redis_cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
     redis.get().await.expect("Failed to connect to redis");
+
     let state = Arc::new(InnerAppState { redis });
     let app = router(state);
+
+    println!("Listening on port http://0.0.0.0:8080!");
     axum::Server::bind(&([0, 0, 0, 0], 8080).into())
         .serve(app.into_make_service())
         .with_graceful_shutdown(shutdown_signal())
