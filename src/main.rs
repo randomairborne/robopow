@@ -227,7 +227,7 @@ async fn js() -> ([(&'static str, &'static str); 2], &'static [u8]) {
     (
         [
             ("cache-control", "max-age=86400"),
-            ("content-type", "application/json;charset=utf-8"),
+            ("content-type", "text/javascript;charset=utf-8"),
         ],
         (include_bytes!("robopow.js")),
     )
