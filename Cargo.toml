@@ -1,0 +1,14 @@
+[package]
+name = "robopow"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.6", features = ["http1", "http2", "headers", "tokio", "json", "macros"], default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+redis = { version = "0.23", features = ["tokio-rustls", "tokio", "aio"] }
+sha2 = { version = "0.10", features = ["asm", "asm-aarch64"] }
+serde = { version = "1", features = ["derive"] }
+deadpool-redis = "0.13"
+thiserror = "1"
+rand = "0.8"
