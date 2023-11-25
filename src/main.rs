@@ -113,11 +113,11 @@ pub struct ChallengeParams {
 }
 
 fn default_zeros() -> usize {
-    14
+    12
 }
 
 fn default_challenges() -> usize {
-    8
+    32
 }
 
 fn default_timeout() -> usize {
