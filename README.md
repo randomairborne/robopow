@@ -12,7 +12,7 @@ It uses a large number of sha512sum nonce calculations. It's kinda cool I guess.
 Import the script:
 
 ```html
-    <script src="https://robopow.valk.sh/api/v0/robopow.js"></script>
+<script src="https://robopow.valk.sh/api/v0/client.js"></script>
 ```
 
 Client JS:
