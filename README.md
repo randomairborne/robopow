@@ -24,7 +24,7 @@ const settings = {
     challenges: 8, // 0-prefixed shasums to require
     timeout: 15 // timeout in seconds
 };
-const { token, nonces } = await Robopow.verifyCaptcha("http://localhost:8080/api");
+const { token, nonces } = await Robopow.verifyCaptcha("https://robopow.valk.sh/api");
 const request = await fetch(`http://yourapi.example.com/captcha/${token}`, {
     method: 'POST',
     body: JSON.stringify(nonces),
