@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -13,6 +13,8 @@ use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sha2::{digest::FixedOutput, Digest};
 use tokio::select;
+
+const GITHUB_URL: &str = "https://github.com/randomairborne/robopow";
 
 #[tokio::main]
 async fn main() {
@@ -39,10 +41,11 @@ fn router(state: AppState) -> Router {
         .route("/verify/:id", post(verify))
         .route("/client.js", get(js))
         .with_state(state.clone());
-    let api = Router::new()
-        .nest_service("/v0", v0)
-        .with_state(state.clone());
-    Router::new().nest_service("/api", api).with_state(state)
+    let api = Router::new().nest("/v0", v0).with_state(state.clone());
+    Router::new()
+        .route("/", get(Redirect::to(GITHUB_URL)))
+        .nest("/api", api)
+        .with_state(state)
 }
 
 pub type AppState = Arc<InnerAppState>;
