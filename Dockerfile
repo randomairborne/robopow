@@ -12,4 +12,4 @@ COPY --from=builder /build/target/release/robopow /usr/bin/robopow
 
 EXPOSE 8080
 
-CMD [ "/usr/bin/robopow" ]
+ENTRYPOINT "/usr/bin/robopow"
