@@ -1,26 +1,29 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
+  <head>
+    <meta charset="UTF-8" />
     <title>Robopow test</title>
     <script src="./src/robopow.js"></script>
     <script>
-        async function asyncDriver() {
-            const { token, nonces } = await Robopow.verifyCaptcha("http://localhost:8080/api");
-            const request = await fetch(`http://localhost:8080/api/v0/verify/${token}`, {
-                method: 'POST',
-                body: JSON.stringify(nonces),
-                headers: {
-                    "content-type": "application/json"
-                }
-            });
-            const response = await request.json();
-            console.debug(response);
-        }
-        asyncDriver().then(() => {})
+      async function asyncDriver() {
+        const { token, nonces } = await Robopow.verifyCaptcha(
+          "http://localhost:8080/api",
+        );
+        const request = await fetch(
+          `http://localhost:8080/api/v0/verify/${token}`,
+          {
+            method: "POST",
+            body: JSON.stringify(nonces),
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+        const response = await request.json();
+        console.debug(response);
+      }
+      asyncDriver().then(() => {});
     </script>
-</head>
-<body>
-
-</body>
+  </head>
+  <body></body>
 </html>
