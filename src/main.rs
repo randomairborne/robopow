@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{Path, Query, State},
@@ -12,7 +12,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sha2::{digest::FixedOutput, Digest};
-use tokio::select;
+use tokio::net::TcpListener;
 
 const GITHUB_URL: &str = "https://github.com/randomairborne/robopow";
 
@@ -26,11 +26,11 @@ async fn main() {
 
     let state = Arc::new(InnerAppState { redis });
     let app = router(state);
-
+    let bind_address = SocketAddr::from(([0, 0, 0, 0], 8080));
     println!("Listening on port http://0.0.0.0:8080!");
-    axum::Server::bind(&([0, 0, 0, 0], 8080).into())
-        .serve(app.into_make_service())
-        .with_graceful_shutdown(shutdown_signal())
+    let tcp = TcpListener::bind(bind_address).await.unwrap();
+    axum::serve(tcp, app)
+        .with_graceful_shutdown(vss::shutdown_signal())
         .await
         .unwrap();
 }
@@ -115,7 +115,7 @@ pub struct ChallengeParams {
     #[serde(default = "default_challenges")]
     challenges: usize,
     #[serde(default = "default_timeout")]
-    timeout: usize,
+    timeout: u64,
 }
 
 fn default_zeros() -> usize {
@@ -126,7 +126,7 @@ fn default_challenges() -> usize {
     32
 }
 
-fn default_timeout() -> usize {
+fn default_timeout() -> u64 {
     10
 }
 
@@ -232,26 +232,6 @@ async fn js() -> ([(&'static str, &'static str); 2], &'static [u8]) {
             ("cache-control", "max-age=86400"),
             ("content-type", "text/javascript;charset=utf-8"),
         ],
-        (include_bytes!("robopow.js")),
+        include_bytes!("robopow.js"),
     )
-}
-
-async fn shutdown_signal() {
-    #[cfg(target_family = "unix")]
-    {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut interrupt = signal(SignalKind::interrupt()).expect("Failed to listen to sigint");
-        let mut quit = signal(SignalKind::quit()).expect("Failed to listen to sigquit");
-        let mut terminate = signal(SignalKind::terminate()).expect("Failed to listen to sigterm");
-
-        select! {
-            _ = interrupt.recv() => {},
-            _ = quit.recv() => {},
-            _ = terminate.recv() => {}
-        }
-    }
-    #[cfg(not(target_family = "unix"))]
-    tokio::signal::ctrl_c()
-        .await
-        .expect("Failed to listen to ctrl+c");
 }
