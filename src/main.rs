@@ -56,11 +56,11 @@ pub struct InnerAppState {
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Redis error: {0}")]
+    #[error("Redis error")]
     Redis(#[from] redis::RedisError),
-    #[error("Redis pool error: {0}")]
+    #[error("Redis pool error")]
     DeadpoolRedis(#[from] deadpool_redis::PoolError),
-    #[error("serde_json error: {0}")]
+    #[error("serde_json error")]
     SerdeJson(#[from] serde_json::Error),
     #[error("Configuration out of bounds")]
     ParamsOutOfBounds,
@@ -73,7 +73,14 @@ pub enum Error {
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let status = self.status();
-        (status, self.to_string()).into_response()
+        let code = self.code();
+        let message = self.to_string();
+        let json = serde_json::json!({
+            "code": code,
+            "message": message,
+            "error": true
+        });
+        (status, Json(json)).into_response()
     }
 }
 
@@ -85,6 +92,16 @@ impl Error {
             }
             Error::ParamsOutOfBounds | Error::WrongNumberOfChallenges => StatusCode::BAD_REQUEST,
             Error::TokenNotFound => StatusCode::NOT_FOUND,
+        }
+    }
+    fn code(&self) -> u64 {
+        match self {
+            Error::Redis(_) => 1,
+            Error::DeadpoolRedis(_) => 2,
+            Error::SerdeJson(_) => 3,
+            Error::ParamsOutOfBounds => 4,
+            Error::TokenNotFound => 5,
+            Error::WrongNumberOfChallenges => 6,
         }
     }
 }
@@ -143,7 +160,7 @@ async fn challenge(
     Query(params): Query<ChallengeParams>,
 ) -> Result<Json<ChallengeSet>, Error> {
     let mut challenges = Vec::with_capacity(8);
-    if params.zeros > 32 || params.challenges > 128 || params.timeout > 3600 {
+    if params.zeros > 256 || params.challenges > 1024 || params.timeout > 3600 {
         return Err(Error::ParamsOutOfBounds);
     }
 
