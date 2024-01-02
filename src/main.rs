@@ -94,6 +94,7 @@ impl Error {
             Error::TokenNotFound => StatusCode::NOT_FOUND,
         }
     }
+
     fn code(&self) -> u64 {
         match self {
             Error::Redis(_) => 1,
