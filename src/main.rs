@@ -247,7 +247,7 @@ fn check_token(nonce: usize, token: &str, challenge: &str, zeros: usize) -> bool
 async fn js() -> ([(&'static str, &'static str); 2], &'static [u8]) {
     (
         [
-            ("cache-control", "max-age=86400"),
+            ("cache-control", "max-age=86400,public,proxy-revalidate"),
             ("content-type", "text/javascript;charset=utf-8"),
         ],
         include_bytes!("robopow.js"),
