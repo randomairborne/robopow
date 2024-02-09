@@ -13,6 +13,7 @@ use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sha2::{digest::FixedOutput, Digest};
 use tokio::net::TcpListener;
+use tower_http::services::ServeFile;
 
 const GITHUB_URL: &str = "https://github.com/randomairborne/robopow";
 
@@ -36,10 +37,15 @@ async fn main() {
 }
 
 fn router(state: AppState) -> Router {
+    let js_v0 = ServeFile::new("./robopow.js")
+        .precompressed_br()
+        .precompressed_deflate()
+        .precompressed_gzip()
+        .precompressed_zstd();
     let v0 = Router::new()
         .route("/challenge", get(challenge))
         .route("/verify/:id", post(verify))
-        .route("/client.js", get(js))
+        .route_service("/client.js", js_v0)
         .with_state(state.clone());
     let api = Router::new().nest("/v0", v0).with_state(state.clone());
     Router::new()
@@ -242,14 +248,4 @@ fn check_token(nonce: usize, token: &str, challenge: &str, zeros: usize) -> bool
         }
     }
     false
-}
-
-async fn js() -> ([(&'static str, &'static str); 2], &'static [u8]) {
-    (
-        [
-            ("cache-control", "max-age=86400,public,proxy-revalidate"),
-            ("content-type", "text/javascript;charset=utf-8"),
-        ],
-        include_bytes!("robopow.js"),
-    )
 }
