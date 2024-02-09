@@ -2,7 +2,7 @@ FROM alpine AS client-builder
 
 RUN apk add zstd brotli pigz
 
-COPY /assets/ /assets/
+COPY /*.js /assets/
 
 RUN find /assets/ -type f -exec pigz -k9 '{}' \; -exec pigz -zk9 '{}' \; -exec brotli -k9 '{}' \; -exec zstd -qk19 '{}' \;
 
