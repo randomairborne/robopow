@@ -1,8 +1,12 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{Path, Query, Request, State},
+    http::{
+        header::{ACCESS_CONTROL_ALLOW_ORIGIN, CACHE_CONTROL},
+        HeaderValue, StatusCode,
+    },
+    middleware::Next,
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
@@ -42,16 +46,47 @@ fn router(state: AppState) -> Router {
         .precompressed_deflate()
         .precompressed_gzip()
         .precompressed_zstd();
+    let v0_static = Router::new()
+        .route_service("/client.js", js_v0)
+        .layer(axum::middleware::from_fn(cacheable));
     let v0 = Router::new()
         .route("/challenge", get(challenge))
         .route("/verify/:id", post(verify))
-        .route_service("/client.js", js_v0)
+        .layer(axum::middleware::from_fn(uncacheable))
+        .merge(v0_static)
+        .layer(axum::middleware::from_fn(nocors))
         .with_state(state.clone());
     let api = Router::new().nest("/v0", v0).with_state(state.clone());
     Router::new()
         .route("/", get(Redirect::to(GITHUB_URL)))
         .nest("/api", api)
         .with_state(state)
+}
+
+static CACHE_CONTROL_YES: HeaderValue = HeaderValue::from_static("maxage=86400");
+static CACHE_CONTROL_NO: HeaderValue = HeaderValue::from_static("no-cache,no-store");
+
+static CORS_STAR: HeaderValue = HeaderValue::from_static("*");
+
+async fn nocors(request: Request, next: Next) -> Response {
+    let mut resp = next.run(request).await;
+    resp.headers_mut()
+        .insert(ACCESS_CONTROL_ALLOW_ORIGIN, CORS_STAR.clone());
+    resp
+}
+
+async fn cacheable(request: Request, next: Next) -> Response {
+    let mut resp = next.run(request).await;
+    resp.headers_mut()
+        .insert(CACHE_CONTROL, CACHE_CONTROL_YES.clone());
+    resp
+}
+
+async fn uncacheable(request: Request, next: Next) -> Response {
+    let mut resp = next.run(request).await;
+    resp.headers_mut()
+        .insert(CACHE_CONTROL, CACHE_CONTROL_NO.clone());
+    resp
 }
 
 pub type AppState = Arc<InnerAppState>;
