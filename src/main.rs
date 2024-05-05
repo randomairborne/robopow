@@ -11,9 +11,8 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use deadpool_redis::{Config, Runtime};
 use rand::{distributions::Alphanumeric, Rng};
-use redis::AsyncCommands;
+use redis::{aio::MultiplexedConnection, AsyncCommands};
 use serde::{Deserialize, Serialize};
 use sha2::{digest::FixedOutput, Digest};
 use tokio::net::TcpListener;
@@ -24,10 +23,11 @@ const GITHUB_URL: &str = "https://github.com/randomairborne/robopow";
 #[tokio::main]
 async fn main() {
     let redis_url = std::env::var("REDIS_URL").expect("Expected REDIS_URL in env");
-
-    let redis_cfg = Config::from_url(redis_url);
-    let redis = redis_cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
-    redis.get().await.expect("Failed to connect to redis");
+    let client = redis::Client::open(redis_url).expect("Could not open redis connection");
+    let redis = client
+        .get_multiplexed_tokio_connection()
+        .await
+        .expect("Could not open mux connection");
 
     let state = Arc::new(InnerAppState { redis });
     let app = router(state);
@@ -92,15 +92,13 @@ async fn uncacheable(request: Request, next: Next) -> Response {
 pub type AppState = Arc<InnerAppState>;
 
 pub struct InnerAppState {
-    redis: deadpool_redis::Pool,
+    redis: MultiplexedConnection,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Redis error")]
     Redis(#[from] redis::RedisError),
-    #[error("Redis pool error")]
-    DeadpoolRedis(#[from] deadpool_redis::PoolError),
     #[error("serde_json error")]
     SerdeJson(#[from] serde_json::Error),
     #[error("Configuration out of bounds")]
@@ -128,9 +126,7 @@ impl IntoResponse for Error {
 impl Error {
     fn status(&self) -> StatusCode {
         match self {
-            Error::Redis(_) | Error::DeadpoolRedis(_) | Error::SerdeJson(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            Error::Redis(_) | Error::SerdeJson(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::ParamsOutOfBounds | Error::WrongNumberOfChallenges => StatusCode::BAD_REQUEST,
             Error::TokenNotFound => StatusCode::NOT_FOUND,
         }
@@ -139,7 +135,6 @@ impl Error {
     fn code(&self) -> u64 {
         match self {
             Error::Redis(_) => 1,
-            Error::DeadpoolRedis(_) => 2,
             Error::SerdeJson(_) => 3,
             Error::ParamsOutOfBounds => 4,
             Error::TokenNotFound => 5,
@@ -219,8 +214,7 @@ async fn challenge(
     };
     state
         .redis
-        .get()
-        .await?
+        .clone()
         .set_ex(
             &token,
             serde_json::to_string(&redis_challenge)?,
@@ -240,7 +234,7 @@ async fn verify(
     Path(token): Path<String>,
     Json(form): Json<Vec<usize>>,
 ) -> Result<Json<ChallengeVerification>, Error> {
-    let maybe_token_meta: Option<String> = state.redis.get().await?.get_del(&token).await?;
+    let maybe_token_meta: Option<String> = state.redis.clone().get_del(&token).await?;
     let Some(token_meta_string) = maybe_token_meta else {
         return Err(Error::TokenNotFound);
     };
