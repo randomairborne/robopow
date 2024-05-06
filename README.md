@@ -12,6 +12,7 @@ It uses a large number of sha512sum nonce calculations. It's kinda cool I guess.
 Import the script:
 
 ```html
+
 <script src="https://robopow.valk.sh/api/v0/client.js"></script>
 ```
 
@@ -20,19 +21,19 @@ Client JS:
 ```js
 // All optional
 const settings = {
-  zeros: 12, // How many zero bits are required
-  challenges: 8, // 0-prefixed shasums to require
-  timeout: 15, // timeout in seconds
+    zeros: 12, // Number of zero-bits at the start of sums
+    challenges: 8, // Number of nonces that must be computed
+    timeout: 15, // timeout in seconds. Tune this to your target devices.
 };
-const { token, nonces } = await Robopow.verifyCaptcha(
-  "https://robopow.valk.sh/api",
+const {token, nonces} = await Robopow.verifyCaptcha(
+    "https://robopow.valk.sh/api",
 );
 const request = await fetch(`http://yourapi.example.com/captcha/${token}`, {
-  method: "POST",
-  body: JSON.stringify(nonces),
-  headers: {
-    "content-type": "application/json",
-  },
+    method: "POST",
+    body: JSON.stringify(nonces),
+    headers: {
+        "content-type": "application/json",
+    },
 });
 ```
 
@@ -42,12 +43,13 @@ On your server:
 const nonces = getRequestJson(); // As long as the order is preserved, you can transmit the nonce list to your server however you want
 const token = getPathFragment(); // Ditto the above
 
+// asking the server if the request is valid
 const request = await fetch(`https://robopow.valk.sh/api/v0/verify/${token}`, {
-  method: "POST",
-  body: JSON.stringify(nonces), // Remember to preserve the order!!
-  headers: {
-    "content-type": "application/json",
-  },
+    method: "POST",
+    body: JSON.stringify(nonces), // Remember to preserve the order!!
+    headers: {
+        "content-type": "application/json",
+    },
 });
 const response = await request.json(); // Returns json object, documented below
 ```
