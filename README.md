@@ -13,7 +13,7 @@ Import the script:
 
 ```html
 
-<script src="https://robopow.valk.sh/api/v0/client.js"></script>
+<script src="https://robopow.example.com/api/v0/client.js"></script>
 ```
 
 Client JS:
@@ -26,7 +26,7 @@ const settings = {
     timeout: 15, // timeout in seconds. Tune this to your target devices.
 };
 const {token, nonces} = await Robopow.verifyCaptcha(
-    "https://robopow.valk.sh/api",
+    "https://robopow.example.com/api",
 );
 const request = await fetch(`http://yourapi.example.com/captcha/${token}`, {
     method: "POST",
@@ -44,7 +44,7 @@ const nonces = getRequestJson(); // As long as the order is preserved, you can t
 const token = getPathFragment(); // Ditto the above
 
 // asking the server if the request is valid
-const request = await fetch(`https://robopow.valk.sh/api/v0/verify/${token}`, {
+const request = await fetch(`https://robopow.example.com/api/v0/verify/${token}`, {
     method: "POST",
     body: JSON.stringify(nonces), // Remember to preserve the order!!
     headers: {
