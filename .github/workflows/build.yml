@@ -40,17 +40,3 @@ jobs:
           push: true
           tags: ghcr.io/${{ env.REPO }}:latest,ghcr.io/${{ env.REPO }}:git-${{ github.sha }}
           platforms: linux/amd64
-
-  deploy:
-    needs: [build]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Correct env
-        run: echo "REPO=${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
-      - uses: actions-hub/kubectl@master
-        env:
-          KUBE_HOST: ${{ secrets.KUBE_HOST }}
-          KUBE_CERTIFICATE: ${{ secrets.KUBE_CERTIFICATE }}
-          KUBE_TOKEN: ${{ secrets.KUBE_TOKEN }}
-        with:
-          args: -n robopow set image deployment/robopow robopow=ghcr.io/${{ env.REPO }}:git-${{ github.sha }}
